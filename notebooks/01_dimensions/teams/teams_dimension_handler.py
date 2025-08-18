@@ -71,6 +71,8 @@ class TeamDimensionHandler:
             self.spark.read.format("json")
             .load(json_path)
             .withColumn("ingestion_date", F.lit(ingestion_date).cast("date"))
+            .withColumn("updated_at", F.current_timestamp())
+            
         )
 
         teams_df.write.mode("overwrite").option(
@@ -81,6 +83,16 @@ class TeamDimensionHandler:
             f"Teams data loaded to Bronze table, ingestion date: {ingestion_date}"
         )
         return True
+
+    def transform_to_silver(self, ingestion_date: str) -> bool:
+        """
+        Transform and cleanse the Bronze data into 3NF format
+        """
+
+        teams_bronze_df = (
+            self.spark.read.table("mlb.bronze.teams")
+            .filter(f"ingestion_date = '{ingestion_date}'")
+        )
 
 
 if __name__ == "__main__":
