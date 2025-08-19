@@ -1,5 +1,6 @@
 from datetime import datetime
 from utils.mlb_api_client import MlbApiClient
+from utils.mlb_data_source_api import create_mlb_data_source_api
 from teams_dimension_metadata import metadata
 from utils.databricks_utils import write_dictionary_to_volume_as_json
 from databricks.sdk.runtime import *
@@ -14,6 +15,8 @@ logger = setup_logger(__name__)
 class TeamDimensionHandler:
     """
     Handles ETL processes for the Team Dimension, organizing data into Landing, Bronze, Silver, and Gold stages.
+    
+    Now supports both legacy manual ETL and modern Delta Live Tables approaches.
 
     Workflow:
         1. Ingest raw team data from the stats MLP API and store it in a landing volume.
@@ -22,7 +25,7 @@ class TeamDimensionHandler:
         4. Aggregate and prepare the Silver data into a consumable dimension table (Gold stage) for analytics and reporting.
     """
 
-    def __init__(self, spark, api_client, metadata):
+    def __init__(self, spark, api_client, metadata, use_dlt_api=False):
         """
         Module initialization.
 
@@ -30,29 +33,61 @@ class TeamDimensionHandler:
             spark (SparkSession): SparkSession object.
             api_client (MLBApiClient): MLB API client.
             metadata (dict): Dictionary containing metadata for the landing volume.
+            use_dlt_api (bool): Whether to use the new DLT-compatible data source API.
         """
         self.spark = spark
         self.metadata = metadata
         self.api_client = api_client
+        self.use_dlt_api = use_dlt_api
+        
+        if use_dlt_api:
+            self.data_source_api = create_mlb_data_source_api()
+            logger.info("Initialized with DLT-compatible data source API")
+        else:
+            self.data_source_api = None
+            logger.info("Initialized with legacy API approach")
 
     def ingest_to_landing(self) -> tuple:
         """
         Ingest raw team data from the stats MLP API and store it in a landing volume.
+        
+        Now supports both legacy and DLT-compatible data source API.
 
         Returns:
             tuple: (path to the ingested JSON file, ingestion date)
         """
         volume_metadata = self.metadata.landing_volume
-        teams = self.api_client.get_teams()
-        if not teams:
-            logger.error("No teams found.")
-            raise ValueError("No teams found.")
-        now_date = datetime.now().strftime("%Y-%m-%d")
+        
+        if self.use_dlt_api:
+            # Use the new data source API
+            teams_result = self.data_source_api.extract_data("teams")
+            teams = teams_result["data"]
+            
+            if not teams:
+                logger.error("No teams found using data source API.")
+                raise ValueError("No teams found using data source API.")
+                
+            # Extract ingestion date from the metadata
+            now_date = teams_result["metadata"].extraction_time.strftime("%Y-%m-%d")
+            
+            # For DLT compatibility, we store the enriched data
+            data_to_store = teams
+            
+        else:
+            # Use legacy approach
+            teams = self.api_client.get_teams()
+            if not teams:
+                logger.error("No teams found.")
+                raise ValueError("No teams found.")
+            now_date = datetime.now().strftime("%Y-%m-%d")
+            data_to_store = teams
+        
         partition_path = f"{volume_metadata.path}/{volume_metadata.partition_key}={now_date}/{volume_metadata.file_name}"
         json_path = write_dictionary_to_volume_as_json(
             path=partition_path,
-            data=teams,
+            data=data_to_store,
         )
+        
         logger.info(f"Teams data ingested to {json_path}, ingestion date: {now_date}")
         return json_path, now_date
 

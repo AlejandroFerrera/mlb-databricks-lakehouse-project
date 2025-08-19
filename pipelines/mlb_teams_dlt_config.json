@@ -1,0 +1,37 @@
+{
+  "name": "mlb_teams_pipeline",
+  "storage": "/Volumes/mlb/landing/raw/dlt",
+  "catalog": "mlb",
+  "target": "dlt",
+  "libraries": [
+    {
+      "notebook": {
+        "path": "/pipelines/mlb_teams_dlt_pipeline"
+      }
+    }
+  ],
+  "clusters": [
+    {
+      "label": "default",
+      "num_workers": 1,
+      "spark_conf": {
+        "spark.sql.adaptive.enabled": "true",
+        "spark.sql.adaptive.coalescePartitions.enabled": "true",
+        "spark.databricks.delta.optimizeWrite.enabled": "true",
+        "spark.databricks.delta.autoCompact.enabled": "true"
+      },
+      "custom_tags": {
+        "project": "mlb-lakehouse",
+        "layer": "dlt-pipeline"
+      }
+    }
+  ],
+  "development": true,
+  "continuous": false,
+  "edition": "ADVANCED",
+  "photon": false,
+  "configuration": {
+    "mlb.pipeline.environment": "development",
+    "mlb.pipeline.version": "1.0.0"
+  }
+}
